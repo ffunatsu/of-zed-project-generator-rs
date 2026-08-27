@@ -353,17 +353,121 @@ pub fn collect_include_directories(
         }
     }
 
-    // 5. Mac SDK paths if on macOS
+    // 5. System SDK paths (macOS & Windows)
     if os == OS::Mac {
         let sdk_path = PathBuf::from(MAC_SDK_ROOT);
         if sdk_path.exists() {
             include_paths.insert(format!("{}/usr/include", MAC_SDK_ROOT));
+        }
+    } else if os == OS::Windows {
+        let win_sys_includes = collect_windows_system_include_dirs();
+        if !win_sys_includes.is_empty() {
+            info!("Found {} Windows system include path(s).", win_sys_includes.len());
+            for dir in win_sys_includes {
+                include_paths.insert(dir);
+            }
         }
     }
 
     let mut result: Vec<String> = include_paths.into_iter().collect();
     result.sort();
     Ok(result)
+}
+
+pub fn collect_windows_system_include_dirs() -> Vec<String> {
+    let mut dirs = Vec::new();
+
+    // 1. Discover MSVC include directory
+    let mut vs_install_paths = Vec::new();
+    let vswhere_path = PathBuf::from(r"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe");
+    if vswhere_path.exists() {
+        if let Ok(output) = std::process::Command::new(&vswhere_path)
+            .args(["-latest", "-products", "*", "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64", "-property", "installationPath"])
+            .output()
+        {
+            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path_str.is_empty() {
+                vs_install_paths.push(PathBuf::from(path_str));
+            }
+        }
+    }
+
+    // Also fallback / search standard VS directories
+    for root in &[r"C:\Program Files\Microsoft Visual Studio", r"C:\Program Files (x86)\Microsoft Visual Studio"] {
+        let p = Path::new(root);
+        if p.exists() {
+            if let Ok(entries) = fs::read_dir(p) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        if let Ok(sub_entries) = fs::read_dir(&path) {
+                            for sub in sub_entries.flatten() {
+                                let sub_path = sub.path();
+                                if sub_path.is_dir() && !vs_install_paths.contains(&sub_path) {
+                                    vs_install_paths.push(sub_path);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    for vs_path in vs_install_paths {
+        let msvc_base = vs_path.join(r"VC\Tools\MSVC");
+        if msvc_base.exists() {
+            if let Ok(entries) = fs::read_dir(&msvc_base) {
+                let mut version_dirs: Vec<PathBuf> = entries
+                    .flatten()
+                    .filter(|e| e.path().is_dir())
+                    .map(|e| e.path())
+                    .collect();
+                version_dirs.sort();
+                if let Some(latest_msvc) = version_dirs.last() {
+                    let inc = latest_msvc.join("include");
+                    if inc.exists() {
+                        dirs.push(normalize_windows_path(inc.to_str().unwrap()));
+                    }
+                    let atlmfc = latest_msvc.join(r"atlmfc\include");
+                    if atlmfc.exists() {
+                        dirs.push(normalize_windows_path(atlmfc.to_str().unwrap()));
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    // 2. Discover Windows 10/11 SDK include directories
+    let sdk_roots = [
+        PathBuf::from(r"C:\Program Files (x86)\Windows Kits\10\Include"),
+        PathBuf::from(r"C:\Program Files\Windows Kits\10\Include"),
+    ];
+
+    for sdk_root in &sdk_roots {
+        if sdk_root.exists() {
+            if let Ok(entries) = fs::read_dir(sdk_root) {
+                let mut version_dirs: Vec<PathBuf> = entries
+                    .flatten()
+                    .filter(|e| e.path().is_dir())
+                    .map(|e| e.path())
+                    .collect();
+                version_dirs.sort();
+                if let Some(latest_sdk) = version_dirs.last() {
+                    for sub in &["ucrt", "shared", "um", "winrt"] {
+                        let sub_path = latest_sdk.join(sub);
+                        if sub_path.exists() {
+                            dirs.push(normalize_windows_path(sub_path.to_str().unwrap()));
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    dirs
 }
 
 pub fn collect_source_files(proj_path: &Path) -> io::Result<Vec<String>> {
@@ -807,5 +911,16 @@ mod tests {
         // Cleanup
         let _ = fs::remove_dir_all(&temp_dir);
     }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn test_collect_windows_system_include_dirs() {
+        let dirs = collect_windows_system_include_dirs();
+        // If MSVC or Windows SDK is installed on this Windows machine, it should discover paths
+        if !dirs.is_empty() {
+            assert!(dirs.iter().any(|d| d.contains("include") || d.contains("ucrt") || d.contains("um")));
+        }
+    }
 }
+
 

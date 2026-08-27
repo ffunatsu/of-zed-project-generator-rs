@@ -74,6 +74,9 @@ CompileFlags:
    - 各アドオンの `src/` 配下の全ディレクトリ
    - `libs/*/include/` 配下の全ディレクトリ
    - `addon_config.mk` に記述された OS 別除外ルール (`ADDON_SOURCES_EXCLUDE`, `ADDON_INCLUDES_EXCLUDE`) を適用
+5. **システム SDK**:
+   - macOS: Xcode SDK (`usr/include`, `System/Library/Frameworks`)
+   - Windows: MSVC (`include`) および Windows SDK (`ucrt`, `shared`, `um`, `winrt`)
 
 ---
 
