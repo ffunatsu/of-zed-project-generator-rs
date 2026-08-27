@@ -304,16 +304,31 @@ pub fn collect_include_directories(
                 continue;
             }
 
-            let addon_path_raw = if addon.starts_with("addons/") {
-                proj_path.join(&addon)
-            } else {
-                of_root.join("addons").join(&addon)
-            };
+            let addon_clean = addon.replace('\\', "/");
+            let addon_name = addon_clean.strip_prefix("addons/").unwrap_or(&addon_clean);
 
-            let addon_path = match std::fs::canonicalize(&addon_path_raw) {
-                Ok(p) => p,
-                Err(_) => {
-                    warn!("[Warning] Addon path '{}' does not exist. Skipping.", addon_path_raw.display());
+            let possible_paths = [
+                proj_path.join(&addon),
+                proj_path.join(&addon_clean),
+                proj_path.join("addons").join(addon_name),
+                of_root.join("addons").join(addon_name),
+                proj_path.join(addon_name),
+            ];
+
+            let mut addon_path_opt = None;
+            for p in &possible_paths {
+                if p.exists() {
+                    if let Ok(canon) = std::fs::canonicalize(p) {
+                        addon_path_opt = Some(canon);
+                        break;
+                    }
+                }
+            }
+
+            let addon_path = match addon_path_opt {
+                Some(p) => p,
+                None => {
+                    warn!("[Warning] Addon '{}' not found in project or OF root addons directory. Skipping.", addon);
                     continue;
                 }
             };
@@ -325,6 +340,17 @@ pub fn collect_include_directories(
             } else {
                 Vec::new()
             };
+
+            // Add addon root if it contains header files directly
+            if dir_has_headers(&addon_path) && !is_excluded_dir(&addon_path, &excludes) {
+                include_paths.insert(normalize_windows_path(addon_path.to_str().unwrap()));
+            }
+
+            // Add explicit ADDON_INCLUDES from addon_config.mk
+            let addon_explicit_includes = parse_addon_includes(&addon_path, os);
+            for inc_dir in addon_explicit_includes {
+                add_directories_recursively(&inc_dir, &excludes, &mut include_paths)?;
+            }
 
             // Add addon src directories
             let addon_src = addon_path.join("src");
@@ -340,12 +366,20 @@ pub fn collect_include_directories(
                     let lib_path = entry.path();
                     if lib_path.is_dir() {
                         let lib_src = lib_path.join("src");
-                        if lib_src.exists() {
+                        let lib_include = lib_path.join("include");
+                        let has_src = lib_src.exists();
+                        let has_include = lib_include.exists();
+
+                        if has_src {
                             add_directories_recursively(&lib_src, &excludes, &mut include_paths)?;
                         }
-                        let lib_include = lib_path.join("include");
-                        if lib_include.exists() {
+                        if has_include {
                             add_directories_recursively(&lib_include, &excludes, &mut include_paths)?;
+                        }
+
+                        // For libs that directly contain headers/sources without src/ or include/ subdirs (e.g. ofxNDI/libs/utils)
+                        if !has_src && !has_include {
+                            add_directories_recursively(&lib_path, &excludes, &mut include_paths)?;
                         }
                     }
                 }
@@ -470,6 +504,23 @@ pub fn collect_windows_system_include_dirs() -> Vec<String> {
     dirs
 }
 
+pub fn dir_has_headers(dir: &Path) -> bool {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(ext) = path.extension() {
+                    let ext_str = ext.to_string_lossy().to_lowercase();
+                    if ext_str == "h" || ext_str == "hpp" || ext_str == "hxx" || ext_str == "hh" {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 pub fn collect_source_files(proj_path: &Path) -> io::Result<Vec<String>> {
     let mut sources = Vec::new();
     let src_dir = proj_path.join("src");
@@ -535,6 +586,79 @@ pub fn add_directories_recursively(
     Ok(())
 }
 
+pub fn section_matches_os(section: &str, os: OS) -> bool {
+    let s = section.to_lowercase();
+    let s = s.trim();
+    if s == "common" || s == "meta" {
+        return true;
+    }
+    match os {
+        OS::Windows => s.starts_with("vs") || s.starts_with("win") || s.starts_with("msys2"),
+        OS::Mac => s.starts_with("osx") || s.starts_with("macos") || s.starts_with("darwin") || s.starts_with("ios"),
+        OS::Linux => s.starts_with("linux"),
+        OS::Unknown => true,
+    }
+}
+
+pub fn parse_addon_includes(addon_path: &Path, os: OS) -> Vec<PathBuf> {
+    let config_path = addon_path.join("addon_config.mk");
+    let mut includes = Vec::new();
+
+    if !config_path.exists() {
+        return includes;
+    }
+
+    let file = match File::open(config_path) {
+        Ok(f) => f,
+        Err(_) => return includes,
+    };
+    let reader = BufReader::new(file);
+
+    let mut current_section: Option<String> = None;
+
+    for line in reader.lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
+        let line = line.trim();
+
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        // Section header: e.g. linux:, osx:, vs:
+        if line.ends_with(':') && !line.contains(' ') && !line.contains('=') {
+            current_section = Some(line.trim_end_matches(':').to_string());
+            continue;
+        }
+
+        if let Some(ref section) = current_section {
+            if !section_matches_os(section, os) {
+                continue;
+            }
+        }
+
+        if line.starts_with("ADDON_INCLUDES") && !line.starts_with("ADDON_INCLUDES_EXCLUDE") {
+            let parts: Vec<&str> = line.split(['=', '+']).collect();
+            if parts.len() >= 2 {
+                let raw_includes = parts.last().unwrap().trim();
+                for inc in raw_includes.split_whitespace() {
+                    let inc_clean = inc.trim().trim_matches('"').trim_matches('\'').replace('\\', "/");
+                    if !inc_clean.is_empty() {
+                        let inc_path = addon_path.join(&inc_clean);
+                        if inc_path.exists() {
+                            includes.push(inc_path);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    includes
+}
+
 pub fn parse_addon_excludes(addon_path: &Path, os: OS) -> Vec<ExcludePattern> {
     let config_path = addon_path.join("addon_config.mk");
     let mut excludes = Vec::new();
@@ -570,25 +694,20 @@ pub fn parse_addon_excludes(addon_path: &Path, os: OS) -> Vec<ExcludePattern> {
 
         // Check if section applies to current OS
         if let Some(ref section) = current_section {
-            if section.starts_with("linux") && os != OS::Linux {
-                continue;
-            }
-            if (section.starts_with("osx") || section.starts_with("ios")) && os != OS::Mac {
-                continue;
-            }
-            if (section.starts_with("vs") || section.starts_with("msys2") || section.starts_with("win")) && os != OS::Windows {
+            if !section_matches_os(section, os) {
                 continue;
             }
         }
 
-        if line.starts_with("ADDON_SOURCES_EXCLUDE") || line.starts_with("ADDON_INCLUDES_EXCLUDE") {
+        if line.starts_with("ADDON_INCLUDES_EXCLUDE") {
             let parts: Vec<&str> = line.split(['=', '+']).collect();
             if parts.len() >= 2 {
                 let pattern = parts.last().unwrap().trim();
                 if !pattern.is_empty() {
-                    let has_dir_wildcard = pattern.ends_with("/%");
-                    let has_wildcard = pattern.ends_with('%');
-                    let clean_pattern = pattern.trim_end_matches("/%").trim_end_matches('%');
+                    let pattern_norm = pattern.replace('\\', "/");
+                    let has_dir_wildcard = pattern_norm.ends_with("/%");
+                    let has_wildcard = pattern_norm.ends_with('%');
+                    let clean_pattern = pattern_norm.trim_end_matches("/%").trim_end_matches('%');
                     excludes.push(ExcludePattern {
                         pattern: addon_path.join(clean_pattern),
                         has_wildcard,
@@ -873,6 +992,8 @@ mod tests {
         fs::create_dir_all(of_root.join("libs").join("openFrameworks").join("graphics")).unwrap();
         fs::create_dir_all(of_root.join("libs").join("glm").join("include").join("glm")).unwrap();
         fs::create_dir_all(of_root.join("addons").join("ofxGui").join("src")).unwrap();
+        fs::create_dir_all(of_root.join("addons").join("ofxNDI").join("libs").join("utils")).unwrap();
+        fs::create_dir_all(proj_dir.join("addons").join("ofxHapPlayer").join("libs").join("ffmpeg").join("include").join("libavutil")).unwrap();
         fs::create_dir_all(proj_dir.join("src").join("utils")).unwrap();
 
         // Create dummy files
@@ -880,10 +1001,20 @@ mod tests {
         fs::write(proj_dir.join("src").join("ofApp.cpp"), "#include \"ofApp.h\"").unwrap();
         fs::write(proj_dir.join("src").join("ofApp.h"), "#pragma once").unwrap();
         fs::write(proj_dir.join("src").join("utils").join("helper.cpp"), "// helper").unwrap();
-        fs::write(proj_dir.join("addons.make"), "ofxGui\n").unwrap();
+        fs::write(proj_dir.join("addons.make"), "ofxGui\nofxNDI\naddons\\ofxHapPlayer\n").unwrap();
         fs::write(
             of_root.join("addons").join("ofxGui").join("addon_config.mk"),
             "meta:\n\tADDON_NAME = ofxGui\n",
+        )
+        .unwrap();
+        fs::write(
+            of_root.join("addons").join("ofxNDI").join("libs").join("utils").join("DoubleBuffer.h"),
+            "#pragma once\n",
+        )
+        .unwrap();
+        fs::write(
+            proj_dir.join("addons").join("ofxHapPlayer").join("libs").join("ffmpeg").join("include").join("libavutil").join("version.h"),
+            "#pragma once\n",
         )
         .unwrap();
 
@@ -905,6 +1036,8 @@ mod tests {
         assert!(include_dirs.iter().any(|d| d.contains(&format!("{}/libs/openFrameworks/app", of_root_norm))));
         assert!(include_dirs.iter().any(|d| d.contains(&format!("{}/libs/glm/include", of_root_norm))));
         assert!(include_dirs.iter().any(|d| d.contains(&format!("{}/addons/ofxGui/src", of_root_norm))));
+        assert!(include_dirs.iter().any(|d| d.contains(&format!("{}/addons/ofxNDI/libs/utils", of_root_norm))));
+        assert!(include_dirs.iter().any(|d| d.contains(&format!("{}/addons/ofxHapPlayer/libs/ffmpeg/include", proj_dir_norm))));
 
         // Generate compile commands and .clangd
         let commands = generate_compile_commands(&proj_dir_norm, &source_files, &include_dirs, os);
@@ -925,6 +1058,28 @@ mod tests {
     }
 
     #[test]
+    fn test_section_matches_os() {
+        assert!(section_matches_os("common", OS::Windows));
+        assert!(section_matches_os("common", OS::Linux));
+        assert!(section_matches_os("common", OS::Mac));
+
+        assert!(section_matches_os("vs:", OS::Windows));
+        assert!(section_matches_os("vs64", OS::Windows));
+        assert!(section_matches_os("msys2", OS::Windows));
+        assert!(!section_matches_os("linux", OS::Windows));
+        assert!(!section_matches_os("osx", OS::Windows));
+        assert!(!section_matches_os("android", OS::Windows));
+
+        assert!(section_matches_os("osx", OS::Mac));
+        assert!(section_matches_os("macos", OS::Mac));
+        assert!(!section_matches_os("vs", OS::Mac));
+
+        assert!(section_matches_os("linux", OS::Linux));
+        assert!(section_matches_os("linux64", OS::Linux));
+        assert!(!section_matches_os("vs", OS::Linux));
+    }
+
+    #[test]
     #[cfg(target_os = "windows")]
     fn test_collect_windows_system_include_dirs() {
         let dirs = collect_windows_system_include_dirs();
@@ -934,5 +1089,6 @@ mod tests {
         }
     }
 }
+
 
 
