@@ -769,6 +769,9 @@ pub fn generate_compile_commands(
         "-Wno-error=dynamic-exception-spec".to_string(),
         "-Wno-dynamic-exception-spec".to_string(),
         "-Wno-deprecated-dynamic-exception-spec".to_string(),
+        "-DOF_USING_STD_FS=1".to_string(),
+        "-DOF_HAS_CPP17=1".to_string(),
+        "-D__cpp_lib_filesystem=201703L".to_string(),
     ];
 
     if os == OS::Windows {
@@ -777,6 +780,8 @@ pub fn generate_compile_commands(
         common_args.push("-D_WIN32".to_string());
         common_args.push("-DTARGET_WIN32".to_string());
         common_args.push("-D_CRT_SECURE_NO_WARNINGS".to_string());
+        common_args.push("-D_MSVC_LANG=201703L".to_string());
+        common_args.push("-D_HAS_CXX17=1".to_string());
     } else if os == OS::Mac {
         common_args.push("-DTARGET_OSX".to_string());
         let sdk_path = Path::new(MAC_SDK_ROOT);
@@ -820,6 +825,9 @@ pub fn generate_clangd_config(include_dirs: &[String], os: OS) -> String {
     yaml.push_str("    - -Wno-error=dynamic-exception-spec\n");
     yaml.push_str("    - -Wno-dynamic-exception-spec\n");
     yaml.push_str("    - -Wno-deprecated-dynamic-exception-spec\n");
+    yaml.push_str("    - -DOF_USING_STD_FS=1\n");
+    yaml.push_str("    - -DOF_HAS_CPP17=1\n");
+    yaml.push_str("    - -D__cpp_lib_filesystem=201703L\n");
 
     if os == OS::Windows {
         yaml.push_str("    - --target=x86_64-pc-windows-msvc\n");
@@ -827,6 +835,8 @@ pub fn generate_clangd_config(include_dirs: &[String], os: OS) -> String {
         yaml.push_str("    - -D_WIN32\n");
         yaml.push_str("    - -DTARGET_WIN32\n");
         yaml.push_str("    - -D_CRT_SECURE_NO_WARNINGS\n");
+        yaml.push_str("    - -D_MSVC_LANG=201703L\n");
+        yaml.push_str("    - -D_HAS_CXX17=1\n");
     } else if os == OS::Mac {
         yaml.push_str("    - -DTARGET_OSX\n");
         let sdk_path = Path::new(MAC_SDK_ROOT);
@@ -922,6 +932,9 @@ mod tests {
                 "-Wno-error=dynamic-exception-spec",
                 "-Wno-dynamic-exception-spec",
                 "-Wno-deprecated-dynamic-exception-spec",
+                "-DOF_USING_STD_FS=1",
+                "-DOF_HAS_CPP17=1",
+                "-D__cpp_lib_filesystem=201703L",
                 "-DTARGET_LINUX",
                 "-IC:/of/libs/openFrameworks",
                 "-IC:/my_project/src",
