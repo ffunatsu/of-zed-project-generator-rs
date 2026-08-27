@@ -1,8 +1,8 @@
 # openFrameworks Zed Project Generator (for static analysis only)
 
-[![Crates.io](https://img.shields.io/crates/v/of-zed-project-generator-rs?v2)](https://crates.io/crates/of-zed-project-generator-rs)
-[![Docs.rs](https://docs.rs/of-zed-project-generator-rs/badge.svg?v2)](https://docs.rs/of-zed-project-generator-rs)
-[![License](https://img.shields.io/crates/l/of-zed-project-generator-rs?v2)](LICENSE)
+[![Crates.io](https://img.shields.io/crates/v/of-zed-project-generator-rs?v3)](https://crates.io/crates/of-zed-project-generator-rs)
+[![Docs.rs](https://docs.rs/of-zed-project-generator-rs/badge.svg?v3)](https://docs.rs/of-zed-project-generator-rs)
+[![License](https://img.shields.io/crates/l/of-zed-project-generator-rs?v3)](LICENSE)
 
 Code suggestion            |  Static analysis (and AI etc...)
 :-------------------------:|:-------------------------:
