@@ -8,7 +8,8 @@ Code suggestion            |  Static analysis (and AI etc...)
 :-------------------------:|:-------------------------:
 ![screenshot1](./docs/screenshot1.png)  |  ![screenshot2](./docs/screenshot2.png)
 
-***NOTE***: This tool is NOT official one of openFrameworks.
+> [!NOTE]
+> This tool is NOT official one of openFrameworks.
 
 openFrameworks project generator for [Zed](https://zed.dev/).
 
