@@ -4,6 +4,10 @@
 [![Docs.rs](https://docs.rs/of-zed-project-generator-rs/badge.svg)](https://docs.rs/of-zed-project-generator-rs)
 [![License](https://img.shields.io/crates/l/of-zed-project-generator-rs)](LICENSE)
 
+Code suggestion            |  Static analysis (and AI etc...)
+:-------------------------:|:-------------------------:
+![screenshot1](./docs/screenshot1.png)  |  ![screenshot2](./docs/screenshot2.png)
+
 ***NOTE***: This tool is NOT official one of openFrameworks.
 
 openFrameworks project generator for [Zed](https://zed.dev/).
