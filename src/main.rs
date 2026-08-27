@@ -542,7 +542,14 @@ pub fn generate_compile_commands(
 
     let mut common_args = vec!["clang++".to_string(), "-std=c++17".to_string()];
 
-    if os == OS::Mac {
+    if os == OS::Windows {
+        common_args.push("--target=x86_64-pc-windows-msvc".to_string());
+        common_args.push("-DWIN32".to_string());
+        common_args.push("-D_WIN32".to_string());
+        common_args.push("-DTARGET_WIN32".to_string());
+        common_args.push("-D_CRT_SECURE_NO_WARNINGS".to_string());
+    } else if os == OS::Mac {
+        common_args.push("-DTARGET_OSX".to_string());
         let sdk_path = Path::new(MAC_SDK_ROOT);
         if sdk_path.exists() {
             common_args.push("-isysroot".to_string());
@@ -550,6 +557,8 @@ pub fn generate_compile_commands(
             common_args.push("-F".to_string());
             common_args.push(format!("{}/System/Library/Frameworks", MAC_SDK_ROOT));
         }
+    } else if os == OS::Linux {
+        common_args.push("-DTARGET_LINUX".to_string());
     }
 
     for dir in include_dirs {
@@ -580,7 +589,14 @@ pub fn generate_clangd_config(include_dirs: &[String], os: OS) -> String {
     yaml.push_str("  Add:\n");
     yaml.push_str("    - -std=c++17\n");
 
-    if os == OS::Mac {
+    if os == OS::Windows {
+        yaml.push_str("    - --target=x86_64-pc-windows-msvc\n");
+        yaml.push_str("    - -DWIN32\n");
+        yaml.push_str("    - -D_WIN32\n");
+        yaml.push_str("    - -DTARGET_WIN32\n");
+        yaml.push_str("    - -D_CRT_SECURE_NO_WARNINGS\n");
+    } else if os == OS::Mac {
+        yaml.push_str("    - -DTARGET_OSX\n");
         let sdk_path = Path::new(MAC_SDK_ROOT);
         if sdk_path.exists() {
             yaml.push_str(&format!("    - -isysroot\n    - {}\n", MAC_SDK_ROOT));
@@ -589,6 +605,8 @@ pub fn generate_clangd_config(include_dirs: &[String], os: OS) -> String {
                 MAC_SDK_ROOT
             ));
         }
+    } else if os == OS::Linux {
+        yaml.push_str("    - -DTARGET_LINUX\n");
     }
 
     for dir in include_dirs {
@@ -669,22 +687,30 @@ mod tests {
             vec![
                 "clang++",
                 "-std=c++17",
+                "-DTARGET_LINUX",
                 "-IC:/of/libs/openFrameworks",
                 "-IC:/my_project/src",
                 "-c",
                 "src/main.cpp"
             ]
         );
-        assert_eq!(cmds[1].file, "src/ofApp.cpp");
+
+        let win_cmds = generate_compile_commands(proj_dir, &source_files, &include_dirs, OS::Windows);
+        assert!(win_cmds[0].arguments.contains(&"--target=x86_64-pc-windows-msvc".to_string()));
+        assert!(win_cmds[0].arguments.contains(&"-DWIN32".to_string()));
+        assert!(win_cmds[0].arguments.contains(&"-DTARGET_WIN32".to_string()));
     }
 
     #[test]
     fn test_generate_clangd_config() {
         let include_dirs = vec!["C:/of/libs/openFrameworks".to_string(), "C:/my_project/src".to_string()];
-        let yaml = generate_clangd_config(&include_dirs, OS::Linux);
+        let yaml = generate_clangd_config(&include_dirs, OS::Windows);
 
         assert!(yaml.contains("CompilationDatabase: ."));
         assert!(yaml.contains("- -std=c++17"));
+        assert!(yaml.contains("- --target=x86_64-pc-windows-msvc"));
+        assert!(yaml.contains("- -DWIN32"));
+        assert!(yaml.contains("- -DTARGET_WIN32"));
         assert!(yaml.contains("- -IC:/of/libs/openFrameworks"));
         assert!(yaml.contains("- -IC:/my_project/src"));
     }
