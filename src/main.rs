@@ -700,7 +700,6 @@ pub fn parse_addon_excludes(addon_path: &Path, os: OS) -> Vec<ExcludePattern> {
         }
 
         if line.starts_with("ADDON_INCLUDES_EXCLUDE") {
-            let parts: Vec<&str> = line.split(['=', '+']).collect();
             if parts.len() >= 2 {
                 let pattern = parts.last().unwrap().trim();
                 if !pattern.is_empty() {
