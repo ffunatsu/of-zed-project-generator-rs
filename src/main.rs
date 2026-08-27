@@ -644,7 +644,13 @@ pub fn generate_compile_commands(
 ) -> Vec<CompileCommand> {
     let mut commands = Vec::new();
 
-    let mut common_args = vec!["clang++".to_string(), "-std=c++17".to_string()];
+    let mut common_args = vec![
+        "clang++".to_string(),
+        "-std=c++17".to_string(),
+        "-Wno-error=dynamic-exception-spec".to_string(),
+        "-Wno-dynamic-exception-spec".to_string(),
+        "-Wno-deprecated-dynamic-exception-spec".to_string(),
+    ];
 
     if os == OS::Windows {
         common_args.push("--target=x86_64-pc-windows-msvc".to_string());
@@ -692,6 +698,9 @@ pub fn generate_clangd_config(include_dirs: &[String], os: OS) -> String {
     yaml.push_str("  CompilationDatabase: .\n");
     yaml.push_str("  Add:\n");
     yaml.push_str("    - -std=c++17\n");
+    yaml.push_str("    - -Wno-error=dynamic-exception-spec\n");
+    yaml.push_str("    - -Wno-dynamic-exception-spec\n");
+    yaml.push_str("    - -Wno-deprecated-dynamic-exception-spec\n");
 
     if os == OS::Windows {
         yaml.push_str("    - --target=x86_64-pc-windows-msvc\n");
@@ -791,6 +800,9 @@ mod tests {
             vec![
                 "clang++",
                 "-std=c++17",
+                "-Wno-error=dynamic-exception-spec",
+                "-Wno-dynamic-exception-spec",
+                "-Wno-deprecated-dynamic-exception-spec",
                 "-DTARGET_LINUX",
                 "-IC:/of/libs/openFrameworks",
                 "-IC:/my_project/src",
