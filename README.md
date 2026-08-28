@@ -17,7 +17,8 @@ openFrameworks project generator for [Zed](https://zed.dev/).
 
 ## Usage
 
-NOTE: You first need to generate project using default projectGenerator.
+> [!NOTE]
+> You first need to generate project using default projectGenerator. (***BEFORE*** the commands below!)
 
 ```bash
 $ cd /path/to/your/openFrameworks/apps/myApps
